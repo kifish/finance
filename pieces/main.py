@@ -6,24 +6,21 @@ import numpy as np
 from math import isnan
 import matplotlib.pyplot as plt
 import scipy.optimize as sco
+import time
 
 def get_data():
+    # 不复权
+    stock_info = ts.get_stock_basics()
+    code2name = {}
+    for code in stock_info.index:
+        code2name[code] = stock_info.loc[code, 'name']
+    name2code = {v: k for k, v in code2name.items()}
     if os.path.exists('./raw_data.xlsx'):
         print('loading from the raw_data.xlsx')
         df_raw = pd.read_excel('./raw_data.xlsx', index_col=0)
-        stock_info = ts.get_stock_basics()
-        code2name = {}
-        for code in stock_info.index:
-            code2name[code] = stock_info.loc[code, 'name']
-        name2code = {v: k for k, v in code2name.items()}
     else:
         print('getting data...')
         print('about 7-8 minutes...')
-        stock_info = ts.get_stock_basics()
-        code2name = {}
-        for code in stock_info.index:
-            code2name[code] = stock_info.loc[code,'name']
-        name2code = {v:k for k,v in code2name.items()}
         df_sz = ts.get_hist_data('sz', start='2018-01-01',
                                 end='2019-03-10')  # p_change就是相对于前一天的收益率
         df_raw = pd.DataFrame()
@@ -51,7 +48,101 @@ def get_data():
     return df_raw,code2name,name2code
 
 
+
+def get_data2():
+    ts.set_token('a5c2d8da60c59a16f764a4a45ab338c62682a59e9e14dbe1a2dee6ae')
+    pro = ts.pro_api()
+    # 查询当前所有正常上市交易的股票列表
+    stock_info = pro.stock_basic(
+        exchange='', list_status='L', fields='ts_code,symbol,name,area,industry,list_date')
+    code2name = {}
+    for row in stock_info.iterrows():
+        code2name[row[1]['ts_code']] = row[1]['name']
+    name2code = {v: k for k, v in code2name.items()}
+
+    if os.path.exists('./raw_h_data.xlsx'):
+        print('loading from the raw_h_data.xlsx')
+        df_raw = pd.read_excel('./raw_h_data.xlsx', index_col=0)
+    else:
+        print('getting data...')
+        # print('about 7-8 minutes...') # 使用get_hist_data接口
+        print('about 20 minutes or more...')  # 使用pro_bar接口
+        df_sz = ts.get_hist_data('sz', start='2018-01-01',
+                                end='2019-03-10')  # p_change就是相对于前一天的收益率
+        df_raw = pd.DataFrame()
+        df_raw['rt_sz'] = df_sz['close']
+        # 这个接口和下面的pro_bar不适配，不方便join，因此这个函数有bug。需要在修改DataFrame结构
+        wrong_cnt = 0
+        success_cnt = 0
+        for code, name in code2name.items():
+            try:
+                # 抓取不到返回None;ts.get_h_data出问题了。
+                # 抱歉，您每分钟最多访问该接口200次，权限的具体详情访问：https: // tushare.pro/document/1?doc_id = 108。
+                df_stock = ts.pro_bar(ts_code=code, asset='E', adj='qfq',
+                           start_date='2018-01-01', end_date='2019-03-10')
+                df_tmp2 = pd.DataFrame()
+                df_tmp2[code] = df_stock['close']
+                df_raw = df_raw.join(df_tmp2)
+                del df_tmp2, df_stock
+                success_cnt += 1
+                time.sleep(0.31)
+            except:
+                print('skip:', code)
+                wrong_cnt += 1
+        print('无法获取信息的股票数量:', wrong_cnt)
+        print('成功获取信息的股票数量:', success_cnt)
+        # 一定要记得逆序，最新的股价在最后一行！方便后续计算收益率
+        df_raw = df_raw.reindex(index=df_raw.index[::-1])
+        df_raw.to_excel("raw_h_data.xlsx")
+    return df_raw,code2name,name2code
+
+
+def get_data3():
+    # 前复权
+    stock_info = ts.get_stock_basics()
+    code2name = {}
+    for code in stock_info.index:
+        code2name[code] = stock_info.loc[code, 'name']
+    name2code = {v: k for k, v in code2name.items()}
+    if os.path.exists('./raw_h_data.xlsx'):
+        print('loading from the raw_h_data.xlsx')
+        df_raw = pd.read_excel('./raw_h_data.xlsx', index_col=0)
+    else:
+        print('getting data...')
+        print('about 7-8 minutes...')
+        df_sz = ts.get_hist_data('sz', start='2018-01-01',
+                                 end='2019-03-10')  # p_change就是相对于前一天的收益率
+        df_raw = pd.DataFrame()
+        df_raw['rt_sz'] = df_sz['close']
+        df_raw = df_raw.reindex(index=df_raw.index[::-1])
+        wrong_cnt = 0
+        success_cnt = 0
+        for code, name in code2name.items():
+            try:
+                df_stock = ts.get_k_data(code=code, start='2018-01-01', end='2019-03-10',
+                              ktype='D', autype='qfq',
+                              index=False,
+                              retry_count=3,
+                              pause=0.001)
+                df_stock = df_stock.set_index("date")
+                df_tmp2 = pd.DataFrame()
+                df_tmp2[code] = df_stock['close']
+                df_raw = df_raw.join(df_tmp2)
+                del df_tmp2, df_stock
+                success_cnt += 1
+            except:
+                print('skip:', code)
+                wrong_cnt += 1
+        print('无法获取信息的股票数量:', wrong_cnt)
+        print('成功获取信息的股票数量:', success_cnt)
+        # 一定要记得逆序，最新的股价在最后一行！方便后续计算收益率
+        df_raw.to_excel("raw_h_data.xlsx")
+        print('saved data into the raw_h_data.xlsx')
+    return df_raw, code2name, name2code
+
+
 def get_simple_data():
+    # 用于测试
     code2name = {'000651': '格力电器',
                 '600519': '贵州茅台',
                 '601318': '中国平安',
@@ -79,6 +170,7 @@ def get_simple_data():
 
 
 def get_simple_data2():
+    # 用于测试
     code2name = {
                 '600519': '贵州茅台',
                 '000651': '格力电器',
@@ -177,6 +269,10 @@ class Solver():
         print('var_m:',self.var_m)
         self.sorted_stocks = sorted(
             stocks, key=lambda stock: stock[1], reverse=True)
+        # for idx,stock in enumerate(self.sorted_stocks):
+        #     if idx >= 10:
+        #         break
+        #     print(self.code2name[stock[0]])
         for idx,stock in enumerate(self.sorted_stocks):
             self.code2index[stock[0]] = idx + 1 # index从1开始
             self.index2code[idx+1] = stock[0]
@@ -250,7 +346,7 @@ class Solver():
         return selected_stocks_dropna
 
 
-def plot_frontier(selected_stocks):
+def plot_frontier(selected_stocks, code2name):
     selected_stock_n = selected_stocks.shape[1]
     print('selected_stock_n:', selected_stock_n)
     np.random.seed(123)
@@ -287,7 +383,10 @@ def plot_frontier(selected_stocks):
     # print('index: {}'.format(sharpes.argmax()))
 
     print('达到最高夏普率条件下,各股票投资比例:')
-    print(all_weights[sharpes.argmax()])
+    opt_weights = all_weights[sharpes.argmax()]
+    for idx,col in enumerate(selected_stocks.columns):
+        print(code2name[col], '\t', opt_weights[idx])
+        
     plt.figure(1)
     plt.title('模拟结果')
     plt.figure(figsize=(12,8))
@@ -314,7 +413,8 @@ def plot_frontier(selected_stocks):
 
     # frontier_y = np.linspace(0.4,0.8,200)
     # frontier_y = np.linspace(0.05, 0.3, 200)
-    frontier_y = np.linspace(0.425,0.925,200)
+    # frontier_y = np.linspace(0.425,0.925,200)
+    frontier_y = np.linspace(0.425,0.9,200)
     def minimize_vol(weights):
         return get_ret_vol_sr(weights)[1]
     frontier_x = []
@@ -348,7 +448,7 @@ def plot_frontier(selected_stocks):
 
 
 if __name__ == '__main__':
-    df_raw, code2name, name2code = get_data()
+    df_raw, code2name, name2code = get_data3()
     log_valid_df_stocks = process(df_raw)
     solver = Solver(log_valid_df_stocks,code2name)
     solver.sort_stocks(log_valid_df_stocks, code2name)
@@ -357,7 +457,7 @@ if __name__ == '__main__':
     selected_stock_n = solver.get_selected_stock_n()
     solver.show_top_k(selected_stock_n)
     selected_stocks = solver.select_stocks()
-    plot_frontier(selected_stocks)
+    plot_frontier(selected_stocks, code2name)
 
 
     
