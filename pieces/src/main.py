@@ -15,9 +15,9 @@ def get_data():
     for code in stock_info.index:
         code2name[code] = stock_info.loc[code, 'name']
     name2code = {v: k for k, v in code2name.items()}
-    if os.path.exists('./raw_data.xlsx'):
+    if os.path.exists('../data/raw_data.xlsx'):
         print('loading from the raw_data.xlsx')
-        df_raw = pd.read_excel('./raw_data.xlsx', index_col=0)
+        df_raw = pd.read_excel('../data/raw_data.xlsx', index_col=0)
     else:
         print('getting data...')
         print('about 7-8 minutes...')
@@ -44,7 +44,7 @@ def get_data():
         print('成功获取信息的股票数量:', success_cnt)
         # 一定要记得逆序，最新的股价在最后一行！方便后续计算收益率
         df_raw = df_raw.reindex(index=df_raw.index[::-1])
-        df_raw.to_excel("raw_data.xlsx")
+        df_raw.to_excel("../data/raw_data.xlsx")
     return df_raw,code2name,name2code
 
 
@@ -60,9 +60,9 @@ def get_data2():
         code2name[row[1]['ts_code']] = row[1]['name']
     name2code = {v: k for k, v in code2name.items()}
 
-    if os.path.exists('./raw_h_data.xlsx'):
+    if os.path.exists('../data/raw_h_data.xlsx'):
         print('loading from the raw_h_data.xlsx')
-        df_raw = pd.read_excel('./raw_h_data.xlsx', index_col=0)
+        df_raw = pd.read_excel('../data/raw_h_data.xlsx', index_col=0)
     else:
         print('getting data...')
         # print('about 7-8 minutes...') # 使用get_hist_data接口
@@ -93,20 +93,20 @@ def get_data2():
         print('成功获取信息的股票数量:', success_cnt)
         # 一定要记得逆序，最新的股价在最后一行！方便后续计算收益率
         df_raw = df_raw.reindex(index=df_raw.index[::-1])
-        df_raw.to_excel("raw_h_data.xlsx")
+        df_raw.to_excel("../data/raw_h_data.xlsx")
     return df_raw,code2name,name2code
 
 
 def get_data3():
-    # 前复权
+    # 获取前复权的股价数据
     stock_info = ts.get_stock_basics()
     code2name = {}
     for code in stock_info.index:
         code2name[code] = stock_info.loc[code, 'name']
     name2code = {v: k for k, v in code2name.items()}
-    if os.path.exists('./raw_h_data.xlsx'):
+    if os.path.exists('../data/raw_h_data.xlsx'):
         print('loading from the raw_h_data.xlsx')
-        df_raw = pd.read_excel('./raw_h_data.xlsx', index_col=0)
+        df_raw = pd.read_excel('../data/raw_h_data.xlsx', index_col=0)
     else:
         print('getting data...')
         print('about 7-8 minutes...')
@@ -136,7 +136,7 @@ def get_data3():
         print('无法获取信息的股票数量:', wrong_cnt)
         print('成功获取信息的股票数量:', success_cnt)
         # 一定要记得逆序，最新的股价在最后一行！方便后续计算收益率
-        df_raw.to_excel("raw_h_data.xlsx")
+        df_raw.to_excel("../data/raw_h_data.xlsx")
         print('saved data into the raw_h_data.xlsx')
     return df_raw, code2name, name2code
 
@@ -194,6 +194,7 @@ def get_simple_data2():
 
 
 def process(df_raw):
+    # 处理原始数据，丢弃数据质量较差的股票，并用插值填补缺失值
     code2nan_num = {}
     for code in df_raw.columns:
         code2nan_num[code] = df_raw[code].isnull().sum()
@@ -239,6 +240,7 @@ def process(df_raw):
 
 
 class Solver():
+    # 利用单指数模型给股票排名，计算最优投资组合及最优投资比例
     def __init__(self,log_valid_df_stocks, code2name):
         self.log_valid_df_stocks = log_valid_df_stocks
         self.code2name = code2name
@@ -257,6 +259,7 @@ class Solver():
     def get_selected_stock_n(self):
         return self.selected_stock_n
     def sort_stocks(self,log_valid_df_stocks, code2name):
+        # 将股票按单指数模型排序
         stocks = []
         for idx, code in enumerate(log_valid_df_stocks.columns):
             if code == 'rt_sz':
@@ -288,6 +291,7 @@ class Solver():
         print(self.code2name[max_code])
 
     def cal_C_opt(self):
+        # 计算最优截止率
         idx2sum_a_val = {0:0}
         idx2sum_b_val = {0:0}
         idx2c_val = {}
@@ -316,6 +320,7 @@ class Solver():
         print('C_opt:',C_opt)
 
     def cal_ratio(self):
+        # 计算最优投资比例
         idx2z_val = {}
         z_val_sum = 0
         for i in range(1,self.selected_stock_n+1):
@@ -328,17 +333,31 @@ class Solver():
 
 
     def show_top_k(self,k):
+        # 显示最优投资组合及投资比例
         stocks_ratio = []
+        opt_weights = []
         for idx,ratio in self.idx2ratio.items():
             stocks_ratio.append((idx,ratio))
+            # print(idx)
+        for code,index in self.code2index.items():
+            if index > len(self.idx2ratio.keys()):
+                break
+            # print(code) # for debug
+            # print(index)
+            opt_weights.append(self.idx2ratio[index])
         sorted_stock_ratio = sorted(stocks_ratio,key = lambda stock : stock[1],reverse = True)
+        print('按最优投资组合公式计算,各股票投资比例:')
         for i in range(k):
             stock = sorted_stock_ratio[i]
             print(self.index2code[stock[0]],'\t',self.code2name[self.index2code[stock[0]]],'\t',stock[1])
+        return opt_weights
 
     def select_stocks(self,simple_mode = False):
+        # 返回最优投资组合的股价信息
         selected_stocks = pd.DataFrame()
         for code, index in self.code2index.items():
+            # print('selecting...')
+            # print(index)
             if (simple_mode and index > 10) or index > self.selected_stock_n:
                 break
             selected_stocks[code] = self.log_valid_df_stocks[code]
@@ -346,7 +365,8 @@ class Solver():
         return selected_stocks_dropna
 
 
-def plot_frontier(selected_stocks, code2name):
+def plot_frontier(selected_stocks, code2name, opt1):
+    # 画出有效边界，并通过最优化方法计算最优投资比例
     selected_stock_n = selected_stocks.shape[1]
     print('selected_stock_n:', selected_stock_n)
     np.random.seed(123)
@@ -365,6 +385,11 @@ def plot_frontier(selected_stocks, code2name):
         vol = np.sqrt(np.dot(weights.T, np.dot(stocks_cov, weights)))
         sr = ret / vol
         return np.array([ret, vol, sr])
+        
+    max_sr_ret, max_sr_vol, max_sr = get_ret_vol_sr(opt1)
+    print('sharpe ratio of the formula-opt portfolio: {}'.format(max_sr))
+    print('return of the formula-opt portfolio: {}'.format(max_sr_ret))
+    print('volatility of the formula-opt portfolio: {}'.format(max_sr_vol))
 
     for i in range(num_portfolios):
         # Weights
@@ -382,7 +407,7 @@ def plot_frontier(selected_stocks, code2name):
     print('volatility with max sharpe ratio in simulation: {}'.format(max_sr_vol))
     # print('index: {}'.format(sharpes.argmax()))
 
-    print('达到最高夏普率条件下,各股票投资比例:')
+    print('达到最高夏普率条件下(模拟),各股票投资比例:')
     opt_weights = all_weights[sharpes.argmax()]
     for idx,col in enumerate(selected_stocks.columns):
         print(code2name[col], '\t', opt_weights[idx])
@@ -409,7 +434,10 @@ def plot_frontier(selected_stocks, code2name):
     print('max sharpe ratio in optimization: {}'.format(max_sharpe))
     print('return with max sharpe ratio in optimization: {}'.format(max_sr_ret))
     print('volatility with max sharpe ratio in optimization: {}'.format(max_sr_vol))
-
+    opt_weights = opts['x']
+    print('达到最高夏普率条件下(最优化),各股票投资比例:')
+    for idx, col in enumerate(selected_stocks.columns):
+        print(code2name[col], '\t', opt_weights[idx])
 
     # frontier_y = np.linspace(0.4,0.8,200)
     # frontier_y = np.linspace(0.05, 0.3, 200)
@@ -442,22 +470,146 @@ def plot_frontier(selected_stocks, code2name):
     plt.ylabel('Return')
     plt.plot(frontier_x,frontier_y, 'r--', linewidth=3)
     plt.scatter(max_sr_vol, max_sr_ret, c='red', s=50)  # red dot
-    plt.title('efficient frontier')
+    plt.title('Efficient Frontier')
     plt.savefig('frontier.png')
     plt.show()
+    return opt_weights
+
+
+def max_drawdown(prices):
+    # 计算最大回撤率
+    # print(prices)
+    i = np.argmax((np.maximum.accumulate(prices) - prices) /
+                  np.maximum.accumulate(prices))
+    if i == 0:
+        return 0
+    j = np.argmax(prices[:i])
+    return (prices[j] - prices[i]) / (prices[j])
+
+
+
+def backtest(selected_stocks,opt1, opt2):
+    # 进行回测
+    selected_stocks_history = selected_stocks
+    if os.path.exists('../data/raw_backtest_data.xlsx'):
+        print('loading from the raw_backtest_data.xlsx')
+        df_raw = pd.read_excel('../data/raw_backtest_data.xlsx', index_col=0)
+    else:
+        print('getting data...')
+        df_sz = ts.get_hist_data('sz', start='2019-03-11',
+                                 end='2019-03-31')  
+        df_raw = pd.DataFrame()
+        df_raw['rt_sz'] = df_sz['close']
+        df_raw = df_raw.reindex(index=df_raw.index[::-1])
+        wrong_cnt = 0
+        success_cnt = 0
+        for code in selected_stocks_history.columns:
+            try:
+                df_stock = ts.get_k_data(code=code, start='2019-03-11', end='2019-03-31',
+                              ktype='D', autype='qfq',
+                              index=False,
+                              retry_count=3,
+                              pause=0.001)
+                df_stock = df_stock.set_index("date")
+                df_tmp2 = pd.DataFrame()
+                df_tmp2[code] = df_stock['close']
+                df_raw = df_raw.join(df_tmp2)
+                del df_tmp2, df_stock
+                success_cnt += 1
+            except:
+                print('skip:', code)
+                wrong_cnt += 1
+        print('无法获取信息的股票数量:', wrong_cnt)
+        print('成功获取信息的股票数量:', success_cnt)
+        
+        df_raw.to_excel("../data/raw_backtest_data.xlsx")
+        print('saved data into the raw_backtest_data.xlsx')
+    df_stocks = df_raw.interpolate(
+            method='linear', limit_direction='forward', axis=0)
+    sz_raw = df_stocks.iloc[0,0]
+    opt1 = np.array(opt1)
+    bought_price1 = np.inner(opt1, df_stocks.iloc[0,1:].values)
+    bought_price2 = np.inner(opt2, df_stocks.iloc[0,1:].values)
+    day_n = df_stocks.shape[0]
+    sz_return_list = [] 
+    return1_list = [] 
+    return2_list = []
+    prices1 = []
+    prices1.append(bought_price1)
+    prices2 = []
+    prices2.append(bought_price2)
+    for idx in range(1,day_n):
+        sz_return_list.append(df_stocks.iloc[idx,0] / sz_raw -1)
+        price1 = np.inner(opt1, df_stocks.iloc[idx, 1:].values)
+        price2 = np.inner(opt2, df_stocks.iloc[idx, 1:].values)
+        prices1.append(price1)
+        prices2.append(price2)
+        return1_list.append(price1 / bought_price1 -1)
+        return2_list.append(price2 / bought_price2 -1)
+    print('formula最大回测率', max_drawdown(prices1))
+    print('opt最大回测率', max_drawdown(prices2))
+    dates = df_stocks.index.values
+    dates = dates[1:]
+    plt.figure(1)
+    plt.title("Back Test")
+    plt.plot(dates,sz_return_list,'green',label = 'sz')
+    plt.plot(dates, return1_list, 'red', label='formula')
+    plt.plot(dates, return2_list, 'blue', label='opt')
+    plt.legend()  # 显示图例
+    plt.xlabel('Date')
+    plt.ylabel('Return')
+    plt.savefig('back_test.png')
+    plt.show()
+
+    # 计算实时收益率
+    print('getting data...')
+    df_sz = ts.get_hist_data('sz', start='2019-06-01',
+                                end='2019-06-25')  
+    df_raw = pd.DataFrame()
+    df_raw['rt_sz'] = df_sz['close']
+    df_raw = df_raw.reindex(index=df_raw.index[::-1])
+    wrong_cnt = 0
+    success_cnt = 0
+    for code in selected_stocks_history.columns:
+        try:
+            df_stock = ts.get_k_data(code=code, start='2019-06-01',
+                                     end='2019-06-25',
+                            ktype='D', autype='qfq',
+                            index=False,
+                            retry_count=3,
+                            pause=0.001)
+            df_stock = df_stock.set_index("date")
+            df_tmp2 = pd.DataFrame()
+            df_tmp2[code] = df_stock['close']
+            df_raw = df_raw.join(df_tmp2)
+            del df_tmp2, df_stock
+            success_cnt += 1
+        except:
+            print('skip:', code)
+            wrong_cnt += 1
+    print('无法获取信息的股票数量:', wrong_cnt)
+    print('成功获取信息的股票数量:', success_cnt)
+    df_stocks = df_raw.interpolate(
+        method='linear', limit_direction='forward', axis=0)
+    bought_price = np.inner(opt2, df_stocks.iloc[0, 1:].values)
+    cur_price = np.inner(opt2, df_stocks.iloc[-1, 1:].values)
+    print('return in reality:',cur_price / bought_price - 1)
+
+
 
 
 if __name__ == '__main__':
-    df_raw, code2name, name2code = get_data3()
-    log_valid_df_stocks = process(df_raw)
-    solver = Solver(log_valid_df_stocks,code2name)
-    solver.sort_stocks(log_valid_df_stocks, code2name)
-    solver.cal_C_opt()
-    solver.cal_ratio()
-    selected_stock_n = solver.get_selected_stock_n()
-    solver.show_top_k(selected_stock_n)
-    selected_stocks = solver.select_stocks()
-    plot_frontier(selected_stocks, code2name)
+    df_raw, code2name, name2code = get_data3() # 获取数据
+    log_valid_df_stocks = process(df_raw) # 处理数据，丢弃不符条件的股票数据，并用线性插值填补缺失值
+    solver = Solver(log_valid_df_stocks,code2name) # 初始化求解器
+    solver.sort_stocks(log_valid_df_stocks, code2name) # 对股票排序
+    solver.cal_C_opt() # 计算最优截止率
+    solver.cal_ratio() # 计算最优投资比例
+    selected_stock_n = solver.get_selected_stock_n() # 返回最优投资组合包含的股票数量
+    opt1 = solver.show_top_k(selected_stock_n) # 显示最优投资组合包含的股票及其比例
+    selected_stocks = solver.select_stocks()  # 返回最优投资组合包含的股票的股价数据
+    opt2 = plot_frontier(selected_stocks, code2name, opt1) # 画出有效边界，并计算最高夏普率条件下的最优投资比例，并计算各项评价投资组合的指标
+    backtest(selected_stocks,opt1,opt2) # 进行回测
 
 
     
